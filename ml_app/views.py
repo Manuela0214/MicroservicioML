@@ -56,6 +56,19 @@ def basic_statistics(request, dataset_id):
 
             return JsonResponse(result)
         else:
-            return JsonResponse({'error': 'Metodo no permitido. Solo se permite el metodo GET.'}, status=405)
+            return JsonResponse({'error': 'Solicitud no valida. Debe ser una solicitud GET'}, status=405)
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
+    
+@csrf_exempt
+def columns_describe(request, dataset_id):
+    try:       
+        if request.method == 'GET':
+            dataset = load_dataset(dataset_id)
+            column_types = dataset.dtypes.apply(lambda x: 'Texto' if 'object' in str(x) else 'Numérico').to_dict()
+            column_types.pop('_id')
+            return JsonResponse(column_types)
+        else:
+            return JsonResponse({'error': 'Solicitud no valida. Debe ser una solicitud GET'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})

@@ -8,4 +8,5 @@ urlpatterns = [
     path('', views.home, name='home'),
     path('load/', views.load, name='load'),
     path('basic statistics/<str:dataset_id>/', views.basic_statistics, name='basic_statistics'),
+    path('columns-describe/<str:dataset_id>/', views.columns_describe, name='columns-describe'),
 ]
