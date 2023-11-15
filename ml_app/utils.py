@@ -22,6 +22,25 @@ def load_dataset(dataset_id):
     except Exception as e:
         raise e
 
+
+def load_datasetImputation(dataset_id):
+    try:
+        client, db = get_database_connection()
+
+        collection_name = "DatasetsImputacion"
+        collection = db[collection_name]
+
+        dataset_document = collection.find_one({'original_dataset_id': str(dataset_id)})
+
+        if not dataset_document:
+            raise ValueError(f"Dataset con ID {dataset_id} no encontrado en la colección {collection_name}")
+
+        return dataset_document
+
+    except Exception as e:
+        raise e
+
+
 def store_imputed_dataset(imputed_data, dataset_id):
     try:
         client, db = get_database_connection()

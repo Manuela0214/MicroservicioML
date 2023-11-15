@@ -6,7 +6,13 @@ from django.http import JsonResponse
 from pymongo import MongoClient
 from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
-from ml_app.utils import load_dataset, store_imputed_dataset
+from ml_app.utils import load_dataset, load_datasetImputation, store_imputed_dataset
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.impute import SimpleImputer
+import numpy as np
+
 
 def home(request):
     return JsonResponse({'mensaje': 'Bienvenido a la API de ML!'})
@@ -98,6 +104,72 @@ def imputation(request, dataset_id, number_type):
             store_imputed_dataset(dataset, dataset_id)
 
             return JsonResponse({'mensaje': 'Imputación realizada con éxito', 'new_dataset': dataset.to_dict(orient='records')})
+
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
+
+@csrf_exempt
+def pca(request, dataset_id):
+    try:
+        if request.method == 'POST':
+            # Asegúrate de tener una conexión a la base de datos
+            client, db = get_database_connection()
+
+            dataset = load_dataset(dataset_id)
+            dataset_data = dataset.get('data', [])
+            df = pd.DataFrame(dataset_data)
+
+            # Buscar dinámicamente una columna que podría funcionar como identificador único
+            potential_id_columns = ['No', 'Id', 'codigo']  # Agrega otros posibles nombres de columna
+            id_column_name = next((col for col in potential_id_columns if col in df.columns), None)
+
+            if id_column_name is None:
+                return JsonResponse({'error': 'No se pudo encontrar una columna que pueda funcionar como identificador único en el dataset'})
+
+            # Seleccionar la columna identificada dinámicamente
+            id_column = df[id_column_name]
+
+            # Eliminar la columna identificada y cualquier columna no numérica antes de aplicar PCA
+            numerical_df = df.select_dtypes(include=[np.number])
+
+            # Imputar valores faltantes en las columnas numéricas
+            imputer = SimpleImputer(strategy='mean')
+            numerical_df = pd.DataFrame(imputer.fit_transform(numerical_df), columns=numerical_df.columns)
+
+            # Aplicar One-Hot Encoding a las columnas categóricas
+            categorical_columns = df.select_dtypes(include=['object']).columns
+            if len(categorical_columns) > 0:
+                encoder = OneHotEncoder(drop='first', sparse=False)
+                encoded_data = encoder.fit_transform(df[categorical_columns].fillna('Missing'))  # Imputar valores faltantes con una categoría 'Missing'
+                numerical_df = pd.concat([numerical_df, pd.DataFrame(encoded_data)], axis=1)
+
+            # Aplicar PCA
+            pca_model = PCA()
+            transformed_data = pca_model.fit_transform(numerical_df)
+
+            # Obtener los pesos de las componentes
+            component_weights = pca_model.components_
+
+            # Crear un nuevo dataset con los datos transformados
+            new_dataset_id = str(uuid4())
+            new_dataset_document = {
+                '_id': new_dataset_id,
+                'original_dataset_id': dataset_id,
+                'data': pd.DataFrame(transformed_data, columns=[f'component_{i}' for i in range(transformed_data.shape[1])]).to_dict(orient='records')
+            }
+
+            # Almacenar el nuevo dataset en la colección correspondiente
+            new_collection = db["DatasetsPCA"]
+            new_collection.insert_one(new_dataset_document)
+
+            return JsonResponse({
+                'mensaje': 'PCA aplicado con éxito',
+                'component_weights': component_weights.tolist(),
+                'new_dataset_id': new_dataset_id
+            })
 
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'})

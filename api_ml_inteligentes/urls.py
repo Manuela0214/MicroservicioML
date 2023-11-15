@@ -10,4 +10,6 @@ urlpatterns = [
     path('basic statistics/<str:dataset_id>/', views.basic_statistics, name='basic_statistics'),
     path('columns-describe/<str:dataset_id>/', views.columns_describe, name='columns-describe'),
     path('imputation/<str:dataset_id>/type/<str:number_type>/', views.imputation, name='imputation'),
+    path('pca/<str:dataset_id>/', views.pca, name='pca'),
+
 ]
