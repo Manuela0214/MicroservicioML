@@ -2,8 +2,10 @@
     "mongo": {
       "username": "user_mongo_ml",
       "password": "admin123",
-      "host": "clustermongo.su7wh1s.mongodb.net",
+      "host": "clustermongo.wwjgqsu.mongodb.net",
       "database": "BDInteligentes"
     }
   }
+  
+
   
