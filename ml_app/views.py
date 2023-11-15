@@ -1,12 +1,19 @@
 import json
 from uuid import uuid4
 from bson import ObjectId
+from django.conf import settings
 import pandas as pd
 from django.http import JsonResponse
 from pymongo import MongoClient
 from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
 from ml_app.utils import load_dataset, store_imputed_dataset
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+import seaborn as sns
+import os
 
 def home(request):
     return JsonResponse({'mensaje': 'Bienvenido a la API de ML!'})
@@ -102,5 +109,44 @@ def imputation(request, dataset_id, number_type):
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'})
 
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
+
+
+@csrf_exempt
+def general_univariate_graphs(request, dataset_id):
+    try:
+        if request.method == 'POST':
+            dataset = load_dataset(dataset_id)
+            dataset_data = dataset.get('data', [])
+
+            if dataset_data:
+                df = pd.DataFrame(dataset_data)
+                
+                folder_path = os.path.join(settings.MEDIA_ROOT, 'univariate_graphs', dataset_id)
+
+                os.makedirs(folder_path, exist_ok=True)
+                
+                images_paths = []
+                for column in df.columns:
+                    plt.figure(figsize=(8, 6))
+
+                    if df[column].dtype == 'object':
+                        sns.countplot(x=df[column])
+                        plt.title(f'Count Plot for {column}')
+                    else:
+                        sns.kdeplot(df[column], cumulative=True)
+                        plt.title(f'Probability Distribution for {column}')
+
+                    image_path = os.path.join(folder_path, f'{column}_distribution.png')
+                    plt.savefig(image_path)
+                    plt.clf()
+                    images_paths.append(image_path)
+
+                return JsonResponse({'mensaje': 'Gráficos generados y almacenados con éxito.', 'images_paths': images_paths})
+            else:
+                return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})
