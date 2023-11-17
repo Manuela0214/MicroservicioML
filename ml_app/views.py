@@ -223,8 +223,6 @@ def bivariate_graphs_class(request, dataset_id):
 
                 folder_path = os.path.join(settings.MEDIA_ROOT, 'bivariate_graphs', dataset_id)
                 os.makedirs(folder_path, exist_ok=True)
-
-                # Crear el pair plot
                 plt.figure(figsize=(12, 10))
                 pair_plot = sns.pairplot(df)
                 plot_path = os.path.join(folder_path, 'bivariate_graph.png')
@@ -252,8 +250,6 @@ def multivariate_graphs_class(request, dataset_id):
 
                 folder_path = os.path.join(settings.MEDIA_ROOT, 'multivariate_graphs', dataset_id)
                 os.makedirs(folder_path, exist_ok=True)
-
-                # Crear el gráfico de correlación
                 correlation_matrix = df.corr()
                 plt.figure(figsize=(12, 10))
                 correlation_heatmap = sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
@@ -266,5 +262,47 @@ def multivariate_graphs_class(request, dataset_id):
                 return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
+    
+
+@csrf_exempt
+def univariate_graphs_class(request, dataset_id):
+    try:
+        if request.method == 'POST':
+            dataset = load_dataset(dataset_id)
+            dataset_data = dataset.get('data', [])
+
+            if dataset_data:
+                df = pd.DataFrame(dataset_data)
+
+                folder_path = os.path.join(settings.MEDIA_ROOT, 'univariate_graphs_class', dataset_id)
+                os.makedirs(folder_path, exist_ok=True)
+
+                categorical_columns = df.select_dtypes(include=['object']).columns
+
+                for column in df.select_dtypes(include=['number']).columns:
+                    plt.figure(figsize=(10, 6))
+                    for category in categorical_columns:
+                        sns.boxplot(x=df[category], y=df[column], data=df)
+                    plt.title(f'Diagrama de caja para {column} por clase')
+                    boxplot_path = os.path.join(folder_path, f'{column}_boxplot.png')
+                    plt.savefig(boxplot_path)
+                    plt.clf()
+
+                for column in df.select_dtypes(include=['number']).columns:
+                    plt.figure(figsize=(10, 6))
+                    for category in categorical_columns:
+                        sns.kdeplot(df[df[category].notna()][column], label=f'Clase {category}')
+                    plt.title(f'Gráfico de densidad para {column} por clase')
+                    density_plot_path = os.path.join(folder_path, f'{column}_density_plot.png')
+                    plt.savefig(density_plot_path)
+                    plt.clf()
+
+                return JsonResponse({'mensaje': 'Gráficos generados y almacenados con éxito.', 'folder_path': folder_path})
+            else:
+                return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})
