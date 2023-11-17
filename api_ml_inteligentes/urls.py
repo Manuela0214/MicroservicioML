@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from ml_app import views
 
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     # Otras rutas
@@ -12,4 +13,6 @@ urlpatterns = [
     path('imputation/<str:dataset_id>/type/<str:number_type>/', views.imputation, name='imputation'),
     path('pca/<str:dataset_id>/', views.pca, name='pca'),
     path('general-univariate-graphs/<str:dataset_id>', views.general_univariate_graphs, name='general_univariate_graphs'),
+    path('bivariate-graphs-class/<str:dataset_id>/', views.bivariate_graphs_class, name='bivariate_graphs_class'),
+
 ]

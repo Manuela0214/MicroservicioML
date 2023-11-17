@@ -209,3 +209,32 @@ def pca(request, dataset_id):
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
+    
+
+
+def bivariate_graphs_class(request, dataset_id):
+    try:
+        if request.method == 'GET':
+            dataset = load_dataset(dataset_id)
+            dataset_data = dataset.get('data', [])
+
+            if dataset_data:
+                df = pd.DataFrame(dataset_data)
+
+                folder_path = os.path.join(settings.MEDIA_ROOT, 'bivariate_graphs', dataset_id)
+                os.makedirs(folder_path, exist_ok=True)
+
+                # Crear el pair plot
+                plt.figure(figsize=(12, 10))
+                pair_plot = sns.pairplot(df)
+                plot_path = os.path.join(folder_path, 'bivariate_graph.png')
+                pair_plot.savefig(plot_path)
+                plt.clf()
+
+                return JsonResponse({'mensaje': 'Gráfico pair plot generado y almacenado con éxito.', 'plot_path': plot_path})
+            else:
+                return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
