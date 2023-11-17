@@ -14,5 +14,6 @@ urlpatterns = [
     path('pca/<str:dataset_id>/', views.pca, name='pca'),
     path('general-univariate-graphs/<str:dataset_id>', views.general_univariate_graphs, name='general_univariate_graphs'),
     path('bivariate-graphs-class/<str:dataset_id>/', views.bivariate_graphs_class, name='bivariate_graphs_class'),
+    path('multivariate-graphs-class/<str:dataset_id>/', views.multivariate_graphs_class, name='multivariate_graphs_class'),
 
 ]
