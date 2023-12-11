@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from pymongo import MongoClient
 from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
-from ml_app.utils import load_dataset, store_imputed_dataset
+from ml_app.utils import load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
@@ -19,6 +19,17 @@ import matplotlib.pyplot as plt
 
 import seaborn as sns
 import os
+
+
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+import joblib
 
 def home(request):
     return JsonResponse({'mensaje': 'Bienvenido a la API de ML!'})
@@ -65,10 +76,16 @@ def basic_statistics(request, dataset_id):
 
             df = pd.DataFrame(dataset_data)
 
-            statistics = df.describe()
-            result = statistics.to_dict()
+            numeric_statistics = df.describe()
+            categorical_statistics = df.describe(include='O')
 
-            return JsonResponse(result)
+            numeric_result = numeric_statistics.to_dict()
+            categorical_result = categorical_statistics.to_dict()
+
+            numeric_result = json.loads(json.dumps(numeric_result, default=convert_to_serializable))
+            categorical_result = json.loads(json.dumps(categorical_result, default=convert_to_serializable))
+            result = {**numeric_result, **categorical_result}
+            return JsonResponse(result, json_dumps_params={'indent': 2})
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
     except Exception as e:
@@ -122,7 +139,7 @@ def imputation(request, dataset_id, number_type):
 def general_univariate_graphs(request, dataset_id):
     try:
         if request.method == 'POST':
-            dataset = load_dataset(dataset_id)
+            dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
 
             if dataset_data:
@@ -162,17 +179,17 @@ def pca(request, dataset_id):
         if request.method == 'POST':
             client, db = get_database_connection()
 
-            dataset = load_dataset(dataset_id)
+            dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
             df = pd.DataFrame(dataset_data)
 
-            potential_id_columns = ['No', 'Id', 'codigo']  
+            potential_id_columns = ['No', 'Id', 'codigo','PassengerId']  
             id_column_name = next((col for col in potential_id_columns if col in df.columns), None)
 
             if id_column_name is None:
-                return JsonResponse({'error': 'No se pudo encontrar una columna que pueda funcionar como identificador único en el dataset'})
-
-           
+                df['_id'] = [str(uuid4()) for _ in range(len(df))]
+                id_column_name = '_id'
+               
             id_column = df[id_column_name]
 
             numerical_df = df.select_dtypes(include=[np.number])
@@ -211,11 +228,11 @@ def pca(request, dataset_id):
         return JsonResponse({'error': str(e)})
     
 
-
+@csrf_exempt
 def bivariate_graphs_class(request, dataset_id):
     try:
         if request.method == 'GET':
-            dataset = load_dataset(dataset_id)
+            dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
 
             if dataset_data:
@@ -242,7 +259,7 @@ def bivariate_graphs_class(request, dataset_id):
 def multivariate_graphs_class(request, dataset_id):
     try:
         if request.method == 'GET':
-            dataset = load_dataset(dataset_id)
+            dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
 
             if dataset_data:
@@ -270,7 +287,7 @@ def multivariate_graphs_class(request, dataset_id):
 def univariate_graphs_class(request, dataset_id):
     try:
         if request.method == 'POST':
-            dataset = load_dataset(dataset_id)
+            dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
 
             if dataset_data:
@@ -306,3 +323,5 @@ def univariate_graphs_class(request, dataset_id):
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})
+    
+

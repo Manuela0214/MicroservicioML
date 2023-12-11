@@ -2,6 +2,7 @@ from uuid import uuid4
 from pymongo import MongoClient
 import pandas as pd  
 from bson import ObjectId
+import numpy as np
 
 from ml_app.database import get_database_connection
 
@@ -59,4 +60,16 @@ def store_imputed_dataset(imputed_data, dataset_id):
     
     except Exception as e:
         return {'error': str(e)}
+
+
+def convert_to_serializable(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        raise TypeError(f"Tipo no serializable: {type(obj)}")
+
 
