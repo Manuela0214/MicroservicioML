@@ -30,6 +30,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 import joblib
 
@@ -361,6 +364,12 @@ def train_models(request, dataset_id):
                     model = KNeighborsClassifier()
                 elif algorithm == 3:
                     model = SVC(class_weight='balanced', random_state=42)
+                elif algorithm == 4:
+                    model = GaussianNB()
+                elif algorithm == 5:
+                    model = DecisionTreeClassifier(random_state=42)
+                elif algorithm == 6:
+                    model = MLPClassifier(max_iter=1000, random_state=42)
 
                 if normalization == 1:
                     scaler = MinMaxScaler()
