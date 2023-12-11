@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
 from ml_app.utils import load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
 from sklearn.decomposition import PCA
+from sklearn.svm import SVC
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.impute import SimpleImputer
 import numpy as np
@@ -22,6 +23,7 @@ import os
 
 
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
@@ -200,7 +202,7 @@ def pca(request, dataset_id):
             categorical_columns = df.select_dtypes(include=['object']).columns
             if len(categorical_columns) > 0:
                 encoder = OneHotEncoder(drop='first', sparse=False)
-                encoded_data = encoder.fit_transform(df[categorical_columns].fillna('Missing'))  # Imputar valores faltantes con una categoría 'Missing'
+                encoded_data = encoder.fit_transform(df[categorical_columns].fillna('Missing'))  
                 numerical_df = pd.concat([numerical_df, pd.DataFrame(encoded_data)], axis=1)
 
             pca_model = PCA()
@@ -324,4 +326,140 @@ def univariate_graphs_class(request, dataset_id):
     except Exception as e:
         return JsonResponse({'error': str(e)})
     
+
+@csrf_exempt
+def train_models(request, dataset_id):
+    try:
+        if request.method == 'POST':
+
+            data = json.loads(request.body)
+            dataset = load_datasetImputation(dataset_id)
+            dataset_data = dataset.get('data', [])
+
+            if not dataset_data:
+                return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
+
+            df = pd.DataFrame(dataset_data)
+            df = pd.get_dummies(df, columns=df.select_dtypes(include=['object']).columns)
+            algorithms = data.get('algorithms', [])
+            option_train = int(data.get('option_train', 0))
+            normalization = int(data.get('normalization', 0))
+            target_column = data.get('target_column', None)
+
+            if target_column is None or target_column not in df.columns:
+                columns_available = df.columns.tolist()
+                return JsonResponse({'error': 'Columna objetivo no válida o no especificada', 'columns_available': columns_available}, status=400)
+
+            folder_path = os.path.join(settings.MEDIA_ROOT, 'train', dataset_id)
+            os.makedirs(folder_path, exist_ok=True)
+            trained_models = []
+
+            for algorithm in algorithms:
+                if algorithm == 1:
+                    model = LogisticRegression(C=1.0, class_weight='balanced', random_state=42)
+                elif algorithm == 2:
+                    model = KNeighborsClassifier()
+                elif algorithm == 3:
+                    model = SVC(class_weight='balanced', random_state=42)
+
+                if normalization == 1:
+                    scaler = MinMaxScaler()
+                elif normalization == 2:
+                    scaler = StandardScaler()
+                else:
+                    return JsonResponse({'error': 'Tipo de normalización no válido. Utilice 1 o 2.'}, status=400)
+
+                if option_train == 1:
+                    X_train, X_test, y_train, y_test = train_test_split(df.drop(columns=[target_column]), df[target_column], test_size=0.3, random_state=42)
+                    scaler.fit(X_train)  
+                    X_train_scaled = scaler.transform(X_train)
+                    X_test_scaled = scaler.transform(X_test)
+                    model.fit(X_train_scaled, y_train)
+                    predictions = model.predict(X_test_scaled)
+                    confusion = confusion_matrix(y_test, predictions).tolist()
+                    accuracy = accuracy_score(y_test, predictions)
+                    precision = precision_score(y_test, predictions)
+                    recall = recall_score(y_test, predictions)
+                    f1 = f1_score(y_test, predictions)
+                elif option_train == 2:
+                    X = df.drop(columns=[target_column])
+                    y = df[target_column]
+                    kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+                    predictions = cross_val_predict(model, scaler.fit_transform(X), y, cv=kf)
+                    confusion = confusion_matrix(y, predictions).tolist()
+                    accuracy = accuracy_score(y, predictions)
+                    precision = precision_score(y, predictions)
+                    recall = recall_score(y, predictions)
+                    f1 = f1_score(y, predictions)
+
+
+                else:
+                    return JsonResponse({'error': 'Opción de entrenamiento no válida. Utilice 1 o 2.'}, status=400)
+
+                algorithm_mapping = {
+                    1: 'Regresión Logística',
+                    2: 'KNN',
+                    3: 'Máquinas de soporte vectorial',
+                    4: 'Naive Bayes',
+                    5: 'Árboles de decisión',
+                    6: 'Redes neuronales multicapa',
+                }
+
+                training_id = str(uuid4())
+                trained_model_info = {
+                    '_id': training_id,
+                    'original_dataset_id': dataset_id,
+                    'algorithm': algorithm_mapping.get(algorithm),
+                    'target_column': target_column,
+                    'confusion_matrix': confusion,
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1_score': f1
+                }
+                filtered_trained_model_info = {
+                    '_id': training_id,
+                    'original_dataset_id': dataset_id,
+                    'algorithm': algorithm_mapping.get(algorithm),
+                    'target_column': target_column,
+                }
+
+                client, db = get_database_connection()
+                collection_name = "TrainedModels"
+                collection = db[collection_name]
+                collection.insert_one(trained_model_info)
+                trained_models.append(filtered_trained_model_info)
+
+            return JsonResponse({'mensaje': 'Entrenamiento realizado con éxito', 'training_id': training_id, 'trained_models': filtered_trained_model_info})
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
+    
+
+@csrf_exempt
+def results(request, train_id):
+    try:
+        client, db = get_database_connection()
+        collection_name = "TrainedModels"
+        collection = db[collection_name]
+        trained_model_info = collection.find_one({'_id': train_id})
+
+        if not trained_model_info:
+            return JsonResponse({'error': 'Modelo entrenado no encontrado'}, status=404)
+
+        results = {
+            'algorithm': trained_model_info.get('algorithm'),
+            'confusion_matrix': trained_model_info.get('confusion_matrix'),
+            'accuracy': trained_model_info.get('accuracy'),
+            'precision': trained_model_info.get('precision'),
+            'recall': trained_model_info.get('recall'),
+            'f1_score': trained_model_info.get('f1_score'),
+        }
+
+        return JsonResponse(results, json_dumps_params={'indent': 2})
+
+    except Exception as e:
+        return JsonResponse({'error': str(e)})
 
