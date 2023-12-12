@@ -18,5 +18,5 @@ urlpatterns = [
     path('pca/<str:dataset_id>/', views.pca, name='pca'),    
     path('train/<str:dataset_id>/', views.train_models, name='train_models'),
     path('results/<str:train_id>/', views.results, name='get_results'),
-   
+    path('prediction/<str:train_id>/', views.prediction, name='prediction'),
 ]

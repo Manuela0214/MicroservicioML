@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from pymongo import MongoClient
 from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
-from ml_app.utils import load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
+from ml_app.utils import load_best_model, load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.preprocessing import OneHotEncoder
@@ -17,9 +17,11 @@ from django.conf import settings
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
+import requests
 import seaborn as sns
 import os
+import pickle
+
 
 
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -198,6 +200,8 @@ def pca(request, dataset_id):
             id_column = df[id_column_name]
 
             numerical_df = df.select_dtypes(include=[np.number])
+            numerical_df.columns = numerical_df.columns.astype(str)
+
 
             imputer = SimpleImputer(strategy='mean')
             numerical_df = pd.DataFrame(imputer.fit_transform(numerical_df), columns=numerical_df.columns)
@@ -415,6 +419,11 @@ def train_models(request, dataset_id):
                 }
 
                 training_id = str(uuid4())
+
+                model_filename = os.path.join(folder_path, f"{training_id}_model.pkl")
+                with open(model_filename, 'wb') as model_file:
+                    pickle.dump(model, model_file)
+
                 trained_model_info = {
                     '_id': training_id,
                     'original_dataset_id': dataset_id,
@@ -472,3 +481,50 @@ def results(request, train_id):
     except Exception as e:
         return JsonResponse({'error': str(e)})
 
+
+@csrf_exempt
+def prediction(request, train_id):
+    try:
+        if request.method == 'GET':
+            # Obtener las métricas del mejor modelo basado en F1 Score
+            client, db = get_database_connection()
+            collection_name = "TrainedModels"
+            collection = db[collection_name]
+
+            best_model_metrics = collection.find_one(
+                {'_id': train_id},
+                sort=[('f1_score', -1)]  # Ordenar en orden descendente por F1 Score
+            )
+
+            if best_model_metrics is None:
+                return JsonResponse({'error': 'No se encontraron las métricas del modelo de entrenamiento con el ID proporcionado'}, status=404)
+
+            # Cargar el modelo entrenado
+            best_model = load_best_model(train_id)
+
+            # Obtener los datos de prueba del cuerpo de la solicitud
+            test_data = json.loads(request.body)
+
+            # Convertir los datos de entrada a un DataFrame
+            test_data_df = pd.DataFrame([test_data])
+
+            # Realizar la predicción
+            predictions = best_model.predict(test_data_df)
+
+            # Devolver los resultados de la predicción
+            prediction_results = {
+                'training_id': train_id,
+                'algorithm': best_model_metrics['algorithm'],
+                'target_column': best_model_metrics['target_column'],
+                'predictions': predictions.tolist(),
+            }
+
+            return JsonResponse(prediction_results)
+
+        else:
+            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
+
+    except Exception as e:
+        print(f"Error al realizar la predicción: {str(e)}")
+        print(f"Contenido del cuerpo de la solicitud: {request.body}")
+        return JsonResponse({'error': str(e)})
