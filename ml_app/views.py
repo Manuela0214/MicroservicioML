@@ -190,7 +190,7 @@ def pca(request, dataset_id):
             dataset_data = dataset.get('data', [])
             df = pd.DataFrame(dataset_data)
 
-            potential_id_columns = ['No', 'Id', 'codigo','PassengerId']  
+            potential_id_columns = ['No', 'Id', 'codigo', 'PassengerId']  
             id_column_name = next((col for col in potential_id_columns if col in df.columns), None)
 
             if id_column_name is None:
@@ -200,8 +200,6 @@ def pca(request, dataset_id):
             id_column = df[id_column_name]
 
             numerical_df = df.select_dtypes(include=[np.number])
-            numerical_df.columns = numerical_df.columns.astype(str)
-
 
             imputer = SimpleImputer(strategy='mean')
             numerical_df = pd.DataFrame(imputer.fit_transform(numerical_df), columns=numerical_df.columns)
@@ -212,21 +210,25 @@ def pca(request, dataset_id):
                 encoded_data = encoder.fit_transform(df[categorical_columns].fillna('Missing'))  
                 numerical_df = pd.concat([numerical_df, pd.DataFrame(encoded_data)], axis=1)
 
+            # Convertir los nombres de las columnas a cadenas
+            numerical_df.columns = numerical_df.columns.astype(str)
+
             pca_model = PCA()
             transformed_data = pca_model.fit_transform(numerical_df)
-            component_weights = pca_model.components_
+
             new_dataset_id = str(uuid4())
-            new_dataset_document = {
-                '_id': new_dataset_id,
-                'original_dataset_id': dataset_id,
-                'data': pd.DataFrame(transformed_data, columns=[f'component_{i}' for i in range(transformed_data.shape[1])]).to_dict(orient='records')
-            }
-            new_collection = db["DatasetsPCA"]
-            new_collection.insert_one(new_dataset_document)
+            
+            for i, record in enumerate(transformed_data):
+                new_dataset_document = {
+                    '_id': f"{new_dataset_id}_{i}",
+                    'original_dataset_id': dataset_id,
+                    'data': {f'component_{j}': record[j] for j in range(len(record))}
+                }
+                new_collection = db["DatasetsPCA"]
+                new_collection.insert_one(new_dataset_document)
 
             return JsonResponse({
                 'mensaje': 'PCA aplicado con éxito',
-                'component_weights': component_weights.tolist(),
                 'new_dataset_id': new_dataset_id
             })
 
@@ -235,7 +237,7 @@ def pca(request, dataset_id):
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
-    
+
 
 @csrf_exempt
 def bivariate_graphs_class(request, dataset_id):
@@ -361,6 +363,7 @@ def train_models(request, dataset_id):
             trained_models = []
 
             for algorithm in algorithms:
+                model = None
                 if algorithm == 1:
                     model = LogisticRegression(C=1.0, class_weight='balanced', random_state=42)
                 elif algorithm == 2:
@@ -396,7 +399,8 @@ def train_models(request, dataset_id):
                 elif option_train == 2:
                     X = df.drop(columns=[target_column])
                     y = df[target_column]
-                    kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+                    min_samples = min(df[target_column].value_counts())
+                    kf = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
                     predictions = cross_val_predict(model, scaler.fit_transform(X), y, cv=kf)
                     confusion = confusion_matrix(y, predictions).tolist()
                     accuracy = accuracy_score(y, predictions)
@@ -477,51 +481,4 @@ def results(request, train_id):
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
-
-
-@csrf_exempt
-def prediction(request, train_id):
-    try:
-        if request.method == 'GET':
-            # Obtener las métricas del mejor modelo basado en F1 Score
-            client, db = get_database_connection()
-            collection_name = "TrainedModels"
-            collection = db[collection_name]
-
-            best_model_metrics = collection.find_one(
-                {'_id': train_id},
-                sort=[('f1_score', -1)]  # Ordenar en orden descendente por F1 Score
-            )
-
-            if best_model_metrics is None:
-                return JsonResponse({'error': 'No se encontraron las métricas del modelo de entrenamiento con el ID proporcionado'}, status=404)
-
-            # Cargar el modelo entrenado
-            best_model = load_best_model(train_id)
-
-            # Obtener los datos de prueba del cuerpo de la solicitud
-            test_data = json.loads(request.body)
-
-            # Convertir los datos de entrada a un DataFrame
-            test_data_df = pd.DataFrame([test_data])
-
-            # Realizar la predicción
-            predictions = best_model.predict(test_data_df)
-
-            # Devolver los resultados de la predicción
-            prediction_results = {
-                'training_id': train_id,
-                'algorithm': best_model_metrics['algorithm'],
-                'target_column': best_model_metrics['target_column'],
-                'predictions': predictions.tolist(),
-            }
-
-            return JsonResponse(prediction_results)
-
-        else:
-            return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
-
-    except Exception as e:
-        print(f"Error al realizar la predicción: {str(e)}")
-        print(f"Contenido del cuerpo de la solicitud: {request.body}")
-        return JsonResponse({'error': str(e)})
+    
