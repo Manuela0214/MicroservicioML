@@ -338,7 +338,6 @@ def univariate_graphs_class(request, dataset_id):
 def train_models(request, dataset_id):
     try:
         if request.method == 'POST':
-
             data = json.loads(request.body)
             dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
@@ -404,8 +403,6 @@ def train_models(request, dataset_id):
                     precision = precision_score(y, predictions)
                     recall = recall_score(y, predictions)
                     f1 = f1_score(y, predictions)
-
-
                 else:
                     return JsonResponse({'error': 'Opción de entrenamiento no válida. Utilice 1 o 2.'}, status=400)
 
@@ -448,13 +445,13 @@ def train_models(request, dataset_id):
                 collection.insert_one(trained_model_info)
                 trained_models.append(filtered_trained_model_info)
 
-            return JsonResponse({'mensaje': 'Entrenamiento realizado con éxito', 'training_id': training_id, 'trained_models': filtered_trained_model_info})
+            return JsonResponse({'mensaje': 'Entrenamiento realizado con éxito', 'training_id': training_id, 'trained_models': trained_models})
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
-    
+
 
 @csrf_exempt
 def results(request, train_id):
