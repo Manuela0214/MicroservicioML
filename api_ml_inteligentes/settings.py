@@ -12,6 +12,14 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 import os
 from pathlib import Path
+from decouple import config
+from dotenv import load_dotenv
+
+
+DB_NAME=os.getenv("DB_NAME", "default_database_name")
+DB_CLUSTER=os.getenv("DB_CLUSTER", "default_cluster")
+DB_USER=os.getenv("DB_USER", "default_user")
+DB_PASSWORD=os.getenv("DB_PASSWORD", "default_password")
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

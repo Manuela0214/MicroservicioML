@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from pymongo import MongoClient
 from django.views.decorators.csrf import csrf_exempt
 from ml_app.database import get_database_connection
-from ml_app.utils import load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
+from ml_app.utils import load_best_model, load_dataset, store_imputed_dataset,load_datasetImputation, convert_to_serializable
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.preprocessing import OneHotEncoder
@@ -17,9 +17,11 @@ from django.conf import settings
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
+import requests
 import seaborn as sns
 import os
+import pickle
+
 
 
 from sklearn.model_selection import train_test_split, cross_val_score
@@ -188,7 +190,7 @@ def pca(request, dataset_id):
             dataset_data = dataset.get('data', [])
             df = pd.DataFrame(dataset_data)
 
-            potential_id_columns = ['No', 'Id', 'codigo','PassengerId']  
+            potential_id_columns = ['No', 'Id', 'codigo', 'PassengerId']  
             id_column_name = next((col for col in potential_id_columns if col in df.columns), None)
 
             if id_column_name is None:
@@ -208,21 +210,25 @@ def pca(request, dataset_id):
                 encoded_data = encoder.fit_transform(df[categorical_columns].fillna('Missing'))  
                 numerical_df = pd.concat([numerical_df, pd.DataFrame(encoded_data)], axis=1)
 
+            # Convertir los nombres de las columnas a cadenas
+            numerical_df.columns = numerical_df.columns.astype(str)
+
             pca_model = PCA()
             transformed_data = pca_model.fit_transform(numerical_df)
-            component_weights = pca_model.components_
+
             new_dataset_id = str(uuid4())
-            new_dataset_document = {
-                '_id': new_dataset_id,
-                'original_dataset_id': dataset_id,
-                'data': pd.DataFrame(transformed_data, columns=[f'component_{i}' for i in range(transformed_data.shape[1])]).to_dict(orient='records')
-            }
-            new_collection = db["DatasetsPCA"]
-            new_collection.insert_one(new_dataset_document)
+            
+            for i, record in enumerate(transformed_data):
+                new_dataset_document = {
+                    '_id': f"{new_dataset_id}_{i}",
+                    'original_dataset_id': dataset_id,
+                    'data': {f'component_{j}': record[j] for j in range(len(record))}
+                }
+                new_collection = db["DatasetsPCA"]
+                new_collection.insert_one(new_dataset_document)
 
             return JsonResponse({
                 'mensaje': 'PCA aplicado con éxito',
-                'component_weights': component_weights.tolist(),
                 'new_dataset_id': new_dataset_id
             })
 
@@ -231,7 +237,7 @@ def pca(request, dataset_id):
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
-    
+
 
 @csrf_exempt
 def bivariate_graphs_class(request, dataset_id):
@@ -357,6 +363,7 @@ def train_models(request, dataset_id):
             trained_models = []
 
             for algorithm in algorithms:
+                model = None
                 if algorithm == 1:
                     model = LogisticRegression(C=1.0, class_weight='balanced', random_state=42)
                 elif algorithm == 2:
@@ -392,7 +399,8 @@ def train_models(request, dataset_id):
                 elif option_train == 2:
                     X = df.drop(columns=[target_column])
                     y = df[target_column]
-                    kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+                    min_samples = min(df[target_column].value_counts())
+                    kf = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
                     predictions = cross_val_predict(model, scaler.fit_transform(X), y, cv=kf)
                     confusion = confusion_matrix(y, predictions).tolist()
                     accuracy = accuracy_score(y, predictions)
@@ -412,6 +420,11 @@ def train_models(request, dataset_id):
                 }
 
                 training_id = str(uuid4())
+
+                model_filename = os.path.join(folder_path, f"{training_id}_model.pkl")
+                with open(model_filename, 'wb') as model_file:
+                    pickle.dump(model, model_file)
+
                 trained_model_info = {
                     '_id': training_id,
                     'original_dataset_id': dataset_id,
@@ -468,4 +481,4 @@ def results(request, train_id):
 
     except Exception as e:
         return JsonResponse({'error': str(e)})
-
+    
