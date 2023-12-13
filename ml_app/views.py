@@ -83,16 +83,10 @@ def basic_statistics(request, dataset_id):
 
             df = pd.DataFrame(dataset_data)
 
-            numeric_statistics = df.describe()
-            categorical_statistics = df.describe(include='O')
+            describe_result = df.describe().to_dict()
+            describe_result = json.loads(json.dumps(describe_result, default=convert_to_serializable))
 
-            numeric_result = numeric_statistics.to_dict()
-            categorical_result = categorical_statistics.to_dict()
-
-            numeric_result = json.loads(json.dumps(numeric_result, default=convert_to_serializable))
-            categorical_result = json.loads(json.dumps(categorical_result, default=convert_to_serializable))
-            result = {**numeric_result, **categorical_result}
-            return JsonResponse(result, json_dumps_params={'indent': 2})
+            return JsonResponse(describe_result, json_dumps_params={'indent': 2})
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud GET'}, status=405)
     except Exception as e:
@@ -146,25 +140,40 @@ def imputation(request, dataset_id, number_type):
 def general_univariate_graphs(request, dataset_id):
     try:
         if request.method == 'POST':
-            dataset = load_datasetImputation(dataset_id)
+            dataset = load_dataset(dataset_id)
             dataset_data = dataset.get('data', [])
 
             if dataset_data:
                 df = pd.DataFrame(dataset_data)
-                
+
                 folder_path = os.path.join(settings.MEDIA_ROOT, 'univariate_graphs', dataset_id)
 
                 os.makedirs(folder_path, exist_ok=True)
-                
+
                 images_paths = []
                 for column in df.columns:
                     plt.figure(figsize=(8, 6))
 
                     if df[column].dtype == 'object':
+                        # Histograma para variables categóricas
+                        plt.figure(figsize=(8, 6))
                         sns.countplot(x=df[column])
                         plt.title(f'Count Plot for {column}')
-                    else:
-                        sns.kdeplot(df[column], cumulative=True)
+
+                    elif np.issubdtype(df[column].dtype, np.number):
+                        # Histograma para variables numéricas
+                        plt.figure(figsize=(8, 6))
+                        sns.histplot(df[column], kde=False)
+                        plt.title(f'Histogram for {column}')
+
+                        # Diagrama de caja para variables numéricas
+                        plt.figure(figsize=(8, 6))
+                        sns.boxplot(x=df[column])
+                        plt.title(f'Boxplot for {column}')
+
+                        # Gráfico de distribución de probabilidad
+                        plt.figure(figsize=(8, 6))
+                        sns.distplot(df[column])
                         plt.title(f'Probability Distribution for {column}')
 
                     image_path = os.path.join(folder_path, f'{column}_distribution.png')
@@ -179,7 +188,7 @@ def general_univariate_graphs(request, dataset_id):
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})
-
+    
 @csrf_exempt
 def pca(request, dataset_id):
     try:
@@ -215,6 +224,7 @@ def pca(request, dataset_id):
 
             pca_model = PCA()
             transformed_data = pca_model.fit_transform(numerical_df)
+            components_weights = pca_model.components_
 
             new_dataset_id = str(uuid4())
             
@@ -229,7 +239,8 @@ def pca(request, dataset_id):
 
             return JsonResponse({
                 'mensaje': 'PCA aplicado con éxito',
-                'new_dataset_id': new_dataset_id
+                'new_dataset_id': new_dataset_id,
+                'data': pd.DataFrame(transformed_data, columns=[f'component_{i}' for i in range(transformed_data.shape[1])]).to_dict(orient='records')
             })
 
         else:
@@ -293,7 +304,6 @@ def multivariate_graphs_class(request, dataset_id):
     except Exception as e:
         return JsonResponse({'error': str(e)})
     
-
 @csrf_exempt
 def univariate_graphs_class(request, dataset_id):
     try:
@@ -301,41 +311,43 @@ def univariate_graphs_class(request, dataset_id):
             dataset = load_datasetImputation(dataset_id)
             dataset_data = dataset.get('data', [])
 
-            if dataset_data:
-                df = pd.DataFrame(dataset_data)
-
-                folder_path = os.path.join(settings.MEDIA_ROOT, 'univariate_graphs_class', dataset_id)
-                os.makedirs(folder_path, exist_ok=True)
-
-                categorical_columns = df.select_dtypes(include=['object']).columns
-
-                for column in df.select_dtypes(include=['number']).columns:
-                    plt.figure(figsize=(10, 6))
-                    for category in categorical_columns:
-                        sns.boxplot(x=df[category], y=df[column], data=df)
-                    plt.title(f'Diagrama de caja para {column} por clase')
-                    boxplot_path = os.path.join(folder_path, f'{column}_boxplot.png')
-                    plt.savefig(boxplot_path)
-                    plt.clf()
-
-                for column in df.select_dtypes(include=['number']).columns:
-                    plt.figure(figsize=(10, 6))
-                    for category in categorical_columns:
-                        sns.kdeplot(df[df[category].notna()][column], label=f'Clase {category}')
-                    plt.title(f'Gráfico de densidad para {column} por clase')
-                    density_plot_path = os.path.join(folder_path, f'{column}_density_plot.png')
-                    plt.savefig(density_plot_path)
-                    plt.clf()
-
-                return JsonResponse({'mensaje': 'Gráficos generados y almacenados con éxito.', 'folder_path': folder_path})
-            else:
+            if not dataset_data:
                 return JsonResponse({'error': 'El dataset no contiene datos'}, status=400)
+
+            df = pd.DataFrame(dataset_data)
+
+            folder_path = os.path.join(settings.MEDIA_ROOT, 'univariate_graphs_class', dataset_id)
+            os.makedirs(folder_path, exist_ok=True)
+
+            categorical_columns = df.select_dtypes(include=['object']).columns
+            numeric_columns = df.select_dtypes(include=['number']).columns
+
+            for column in numeric_columns:
+                # Imprime los datos para verificar si son válidos
+                print(f'Datos para {column}: {df[column].dropna().tolist()}')
+
+                # Gráfico de densidad
+                plt.figure(figsize=(10, 6))
+                sns.kdeplot(df[column].dropna())
+                plt.title(f'Gráfico de densidad para {column}')
+                density_plot_path = os.path.join(folder_path, f'{column}_density_plot.png')
+                plt.savefig(density_plot_path)
+                plt.clf()
+
+                # Diagrama de caja
+                plt.figure(figsize=(10, 6))
+                sns.boxplot(x=df[column].dropna())
+                plt.title(f'Diagrama de caja para {column}')
+                box_plot_path = os.path.join(folder_path, f'{column}_box_plot.png')
+                plt.savefig(box_plot_path)
+                plt.clf()
+
+            return JsonResponse({'mensaje': 'Gráficos generados y almacenados con éxito.', 'folder_path': folder_path})
         else:
             return JsonResponse({'error': 'Solicitud no válida. Debe ser una solicitud POST'}, status=405)
     except Exception as e:
         return JsonResponse({'error': str(e)})
     
-
 @csrf_exempt
 def train_models(request, dataset_id):
     try:
